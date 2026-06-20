@@ -1,0 +1,31 @@
+# Real-time Inference Configuration
+
+model:
+  num_classes: 120
+  num_keypoints: 25
+  pose_dim: 3
+  use_attention: true
+  multimodal: false
+
+inference:
+  device: "cuda"
+  batch_size: 1
+  confidence_threshold: 0.5
+  nms_threshold: 0.4
+  camera_id: 0
+  display_fps: true
+  save_output: true
+  output_path: "./outputs/inference"
+  model_weights: "./checkpoints/best_model.pth"
+  temporal_window: 64
+  stride: 16
+
+# Global Settings
+project_name: "action_recognition_inference"
+experiment_name: "real_time_demo"
+output_dir: "./outputs/inference"
+seed: 42
+debug: false
+log_level: "INFO"
+wandb_enabled: false
+tensorboard_enabled: false

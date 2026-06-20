@@ -1,0 +1,90 @@
+# NTU RGB+D 120 — A100 80GB SXM Optimized Configuration
+# Skeleton-based action recognition with joint + bone streams
+# Target: 2-3x throughput vs baseline via BF16 + torch.compile + TF32 + fused ops
+#
+# Memory budget: ~80GB HBM2e
+#   - Model params: ~5-8M (~20-32MB)
+#   - Optimizer state (AdamW): ~40-64MB
+#   - Activations (batch=128, T=64, V=25): ~2-4GB
+#   - Workspace/cuDNN: ~2-4GB
+#   - Total: ~6-8GB → plenty of headroom for batch_size=128
+
+# Model Configuration
+model:
+  num_classes: 120
+  num_keypoints: 25
+  pose_dim: 3
+  use_attention: true
+  multimodal: false
+  streams: ["joint", "bone"]
+
+# Training Configuration — A100 Optimized
+training:
+  learning_rate: 0.002               # Mild sqrt scaling from 0.001 @ bs=32
+  weight_decay: 1e-4
+  num_epochs: 120
+  warmup_epochs: 5                   # Shorter warmup with larger batches
+  optimizer: "adamw"
+  beta1: 0.9
+  beta2: 0.999
+  scheduler: "cosine"
+  min_lr: 1e-6
+  loss_type: "cross_entropy"
+  label_smoothing: 0.1
+  use_focal_loss: false
+
+  # ── A100 Ampere Optimizations ──────────────────────────────────────────
+  use_amp: true
+  amp_dtype: "bfloat16"              # BF16: same exponent range as FP32, no underflow
+  use_torch_compile: true            # Kernel fusion: 30-50% faster forward/backward
+  compile_mode: "reduce-overhead"    # Good speedup, reasonable compile time
+  use_tf32: true                     # 8x matmul throughput on tensor cores
+  cudnn_benchmark: true              # Auto-tune conv algorithms for current shapes
+  use_flash_attention: true          # 2-4x faster MultiheadAttention via SDPA
+  use_fused_optimizer: true          # Single-kernel AdamW step (30% faster)
+
+  # Regularization
+  use_ema: true
+  ema_decay: 0.999
+  gradient_clip: 5.0
+  gradient_accumulation_steps: 1     # No need with 80GB — full batch fits
+  early_stopping_patience: 20
+  keep_best_k_checkpoints: 3
+
+# Data Configuration — A100 Optimized
+data:
+  dataset: "skeleton"
+  data_root: "/data/ntu_rgbd120"
+  num_workers: 16                    # RunPod has 16+ vCPUs — keep GPU fed
+  pin_memory: true
+  prefetch_factor: 4                 # Aggressive prefetch: 4 batches per worker
+  max_frame_num: 64
+  skeleton_normalization: true
+  batch_size: 128
+  sampling_strategy: "uniform"
+
+# Inference Configuration
+inference:
+  device: "cuda"
+  batch_size: 1
+  confidence_threshold: 0.5
+  camera_id: 0
+  display_fps: true
+  save_output: false
+  output_path: "./outputs/inference"
+  model_weights: "./outputs/ntu120_a100/checkpoints/best_model.pth"
+  temporal_window: 64
+  stride: 16
+
+# Global Settings
+project_name: "action_recognition_ntu120"
+experiment_name: "twostream_agcn_a100"
+output_dir: "./outputs/ntu120_a100"
+seed: 42
+debug: false
+num_gpus: 1
+distributed: false
+log_level: "INFO"
+wandb_enabled: false
+tensorboard_enabled: true
+save_frequency: 5

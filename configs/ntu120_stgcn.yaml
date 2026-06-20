@@ -1,0 +1,71 @@
+# NTU RGB+D 120 — Two-Stream Adaptive Graph Convolution
+# Skeleton-based action recognition with joint + bone streams
+# Training recipe: AdamW + cosine + label smoothing + EMA + BF16
+
+# Model Configuration
+model:
+  num_classes: 120
+  num_keypoints: 25
+  pose_dim: 3
+  use_attention: true
+  multimodal: false
+  streams: ["joint", "bone"]
+
+# Training Configuration
+training:
+  learning_rate: 0.001
+  weight_decay: 1e-4
+  num_epochs: 120
+  warmup_epochs: 10               # Longer warmup for stable convergence
+  optimizer: "adamw"
+  beta1: 0.9
+  beta2: 0.999
+  scheduler: "cosine"
+  min_lr: 1e-6
+  loss_type: "cross_entropy"
+  label_smoothing: 0.1            # Standard for classification
+  use_focal_loss: false
+  use_amp: true                   # BF16 mixed precision for 2x speed
+  use_ema: true                   # EMA produces smoother validation
+  ema_decay: 0.999
+  gradient_clip: 5.0              # Max norm for stability
+  gradient_accumulation_steps: 1
+  early_stopping_patience: 20
+  keep_best_k_checkpoints: 3
+
+# Data Configuration
+data:
+  dataset: "skeleton"
+  data_root: "/data/ntu_rgbd120"
+  num_workers: 8
+  pin_memory: true
+  max_frame_num: 64               # Optimal frame length for ST-GCN
+  skeleton_normalization: true
+  batch_size: 32
+  sampling_strategy: "uniform"
+
+# Inference Configuration
+inference:
+  device: "cuda"
+  batch_size: 1
+  confidence_threshold: 0.5
+  camera_id: 0
+  display_fps: true
+  save_output: false
+  output_path: "./outputs/inference"
+  model_weights: "./outputs/ntu120_stgcn/checkpoints/best_model.pth"
+  temporal_window: 64
+  stride: 16
+
+# Global Settings
+project_name: "action_recognition_ntu120"
+experiment_name: "twostream_agcn"
+output_dir: "./outputs/ntu120_stgcn"
+seed: 42
+debug: false
+num_gpus: 1
+distributed: false
+log_level: "INFO"
+wandb_enabled: false
+tensorboard_enabled: true
+save_frequency: 5
