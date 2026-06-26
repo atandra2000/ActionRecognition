@@ -39,6 +39,84 @@ Designed for single-GPU training on an NVIDIA A100 80GB SXM (RunPod) with BF16 m
 
 ### End-to-End Pipeline
 
+```mermaid
+flowchart TB
+    V["Video frames<br/>(RGB)"]:::in
+    subgraph POSE["HRNet-like Pose Estimator"]
+        direction TB
+        P1["Backbone<br/>high-res representations"]:::pose
+        P2["Heatmap Regression<br/>25 joints"]:::pose
+        P3["Soft-argmax<br/>sub-pixel 2D keypoints"]:::pose
+        P4["3D Lifting<br/>depth from 2D coords"]:::pose
+    end
+    subgraph SKE["Skeleton Features"]
+        direction TB
+        SK1["Joint stream<br/>raw (x,y,z)"]:::joint
+        SK2["Bone stream<br/>child − parent vectors"]:::bone
+    end
+    subgraph STGCN["Two-Stream ST-GCN"]
+        direction TB
+        S1["5× CTR-GCN<br/>64 → 128 → 256 → 256 → 256<br/>multi-scale temporal k=3,5,7,9"]:::stgcn
+        S2["Spatial/Temporal/Channel attention"]:::stgcn
+    end
+    subgraph FUSE["Fusion + Classifier"]
+        direction TB
+        F1["Attention Fusion<br/>(concat / add / attention)"]:::fuse
+        F2["MLP Classifier<br/>512 → 256 → 120"]:::fuse
+    end
+
+    V --> P1 --> P2 --> P3 --> P4 --> SK1
+    P4 --> SK2
+    SK1 --> S1 --> S2 --> F1
+    SK2 --> S1
+    F1 --> F2 --> OUT["120-class logits<br/>~30 FPS on RTX 3090"]:::out
+
+    classDef in fill:#e0e7ff,stroke:#3730a3,color:#000
+    classDef pose fill:#fef3c7,stroke:#92400e,color:#000
+    classDef joint fill:#dbeafe,stroke:#1d4ed8,color:#000
+    classDef bone fill:#fce7f3,stroke:#9d174d,color:#000
+    classDef stgcn fill:#dbeafe,stroke:#1d4ed8,color:#000
+    classDef fuse fill:#bbf7d0,stroke:#15803d,color:#000
+    classDef out fill:#bbf7d0,stroke:#15803d,color:#000
+```
+
+### Two-Stream ST-GCN &mdash; Joint + Bone
+
+```mermaid
+flowchart LR
+    JT["Joint stream<br/>(B, T, V=25, C=3)"]:::joint --> EXJ["EnhancedPose<br/>FeatureExtractor"]:::pose
+    BT["Bone stream<br/>(child − parent)"]:::bone --> EXB["EnhancedPose<br/>FeatureExtractor"]:::pose
+    EXJ --> SJ["5× ST-GCN<br/>+ attention"]:::stgcn --> F["Attention Fusion"]:::fuse
+    EXB --> SB["5× ST-GCN<br/>+ attention"]:::stgcn --> F
+    F --> MLP["MLP 512→256→120"]:::fuse
+
+    classDef joint fill:#dbeafe,stroke:#1d4ed8,color:#000
+    classDef bone fill:#fce7f3,stroke:#9d174d,color:#000
+    classDef pose fill:#fef3c7,stroke:#92400e,color:#000
+    classDef stgcn fill:#dbeafe,stroke:#1d4ed8,color:#000
+    classDef fuse fill:#bbf7d0,stroke:#15803d,color:#000
+```
+
+> Removing the bone stream drops accuracy by ~5%. The two-stream fusion is load-bearing.
+
+### Serving Stack
+
+```mermaid
+flowchart LR
+    M["Trained ST-GCN"]:::m --> ONNX["ONNX export<br/>dynamic batch axis"]:::on
+    ONNX --> TRT["TensorRT<br/>INT8 calibration"]:::trt
+    TRT --> API["FastAPI<br/>/predict /health"]:::api
+    API --> CL["Clients<br/>browsers / services"]:::cl
+
+    classDef m fill:#dbeafe,stroke:#1d4ed8,color:#000
+    classDef on fill:#fde68a,stroke:#b45309,color:#000
+    classDef trt fill:#fed7aa,stroke:#9a3412,color:#000
+    classDef api fill:#bbf7d0,stroke:#15803d,color:#000
+    classDef cl fill:#e0e7ff,stroke:#3730a3,color:#000
+```
+
+### Text Alternative (ASCII)
+
 ```
 Video Frame (RGB)
        │
